@@ -21,7 +21,6 @@ public class ScheduleThread extends Thread implements Constant {
             if (elevator.getState() != Elevator.State.IDLE) {
                 processCurrentFloor();
                 updateElevatorState();
-                executeMovement();
             }
         }
         
@@ -116,20 +115,21 @@ public class ScheduleThread extends Thread implements Constant {
     }
     
     private void updateElevatorState() {
+        boolean shouldRedispatch = elevator.containTarget();
+        Constant.State state = elevator.getState();
+        Floor floor = floorsManager.getFloor(elevator.getFloor());
         floorsManager.acquireLock();
         elevator.acquireLock();
         try {
-            boolean shouldRedispatch = elevator.containTarget();
             elevator.updateState();
             if (shouldRedispatch) {
-                Floor floor = floorsManager.getFloor(elevator.getFloor());
                 floor.acquireLock();
                 try {
                     floor.updateState();
-                    if (floor.isUpPressed()) {
+                    if (state == Constant.State.UP && floor.isUpPressed()) {
                         floorsManager.putRequest(new Request(floor.floorNumber, Direction.UP));
                     }
-                    if (floor.isDownPressed()) {
+                    if (state == Constant.State.DOWN && floor.isDownPressed()) {
                         floorsManager.putRequest(new Request(floor.floorNumber, Direction.DOWN));
                     }
                 } finally {
@@ -139,6 +139,15 @@ public class ScheduleThread extends Thread implements Constant {
         } finally {
             elevator.releaseLock();
             floorsManager.releaseLock();
+        }
+        executeMovement();
+        if (shouldRedispatch) {
+            if (state == Constant.State.UP && floor.isDownPressed()) {
+                elevator.addTarget(new Request(floor.floorNumber, Direction.DOWN));
+            }
+            if (state == Constant.State.DOWN && floor.isUpPressed()) {
+                elevator.addTarget(new Request(floor.floorNumber, Direction.UP));
+            }
         }
     }
     
